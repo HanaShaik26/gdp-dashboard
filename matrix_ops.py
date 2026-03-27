@@ -57,13 +57,15 @@ def validate_entry(entry: str) -> Tuple[bool, Optional[str]]:
         return False, "Entry must be a number"
 
 
-def create_matrix(rows: int, cols: int) -> dict:
+def create_matrix(rows: int, cols: int, name: str = None) -> dict:
     """Create empty matrix structure."""
+    if name is None:
+        name = f"Matrix_{rows}x{cols}"
     return {
         "rows": rows,
         "cols": cols,
         "data": [[0.0 for _ in range(cols)] for _ in range(rows)],
-        "name": f"Matrix_R{rows}C{cols}"
+        "name": name
     }
 
 
@@ -300,3 +302,36 @@ def update_matrix_entry(matrix_dict: dict, row: int, col: int, value: Union[int,
         return False, "Value must be a number"
     except Exception as e:
         return False, f"Error updating entry: {str(e)}"
+
+
+def row_reduce(matrix_dict: dict) -> Tuple[bool, Union[dict, str]]:
+    """
+    Perform row reduction (Gaussian elimination) to reduced row echelon form (RREF).
+    
+    Returns:
+        tuple: (success, rref_matrix or error_message)
+    """
+    try:
+        arr = list_to_np_array(matrix_dict["data"])
+        if arr is None:
+            return False, "Invalid matrix data"
+        
+        # Use sympy for exact RREF computation
+        import sympy as sp
+        sympy_matrix = sp.Matrix(arr)
+        rref_matrix = sympy_matrix.rref()[0]  # rref() returns (rref_matrix, pivot_columns)
+        
+        # Convert back to numpy array
+        rref_arr = np.array(rref_matrix).astype(float)
+        
+        result = {
+            "rows": rref_arr.shape[0],
+            "cols": rref_arr.shape[1],
+            "data": rref_arr.tolist(),
+            "name": f"{matrix_dict['name']}_RREF"
+        }
+        return True, result
+    except ImportError:
+        return False, "SymPy library required for row reduction. Please install with: pip install sympy"
+    except Exception as e:
+        return False, f"Error performing row reduction: {str(e)}"

@@ -14,7 +14,7 @@ from matrix_ops import (
     validate_dimensions, validate_entry, create_matrix,
     determinant, transpose, inverse,
     add_matrices, subtract_matrices, multiply_matrices,
-    scalar_multiply, update_matrix_entry
+    scalar_multiply, update_matrix_entry, row_reduce
 )
 
 # Set page config
@@ -30,6 +30,19 @@ if "logged_in" not in st.session_state:
     st.session_state.username = None
     st.session_state.matrices = []
     st.session_state.page = "login"
+
+
+def get_next_matrix_letter(matrices):
+    """Get the next available letter A-J for matrix naming."""
+    existing_letters = set()
+    for matrix in matrices:
+        if matrix['name'] and len(matrix['name']) >= 1 and matrix['name'][0].isalpha():
+            existing_letters.add(matrix['name'][0].upper())
+    
+    available_letters = [chr(65 + i) for i in range(10) if chr(65 + i) not in existing_letters]
+    if available_letters:
+        return available_letters[0]
+    return None
 
 
 def display_login_page():
@@ -156,7 +169,14 @@ def display_main_page():
                 else:
                     rows = int(rows_input)
                     cols = int(cols_input)
-                    new_matrix = create_matrix(rows, cols)
+                    # Assign next letter A-J
+                    next_letter = get_next_matrix_letter(st.session_state.matrices)
+                    if next_letter:
+                        matrix_name = f"{next_letter} ({rows}x{cols})"
+                    else:
+                        matrix_name = f"Matrix_{rows}x{cols}"  # Fallback
+                    
+                    new_matrix = create_matrix(rows, cols, matrix_name)
                     st.session_state.matrices.append(new_matrix)
                     save_user_matrices(st.session_state.username, st.session_state.matrices)
                     st.success(f"✅ Matrix created: {new_matrix['name']}")
@@ -169,6 +189,40 @@ def display_main_page():
         if not st.session_state.matrices:
             st.info("No matrices created yet. Go to 'Create Matrix' to get started!")
         else:
+            # Bulk delete section
+            st.write("### Bulk Delete")
+            col1, col2, col3 = st.columns([3, 1, 1])
+            
+            with col1:
+                st.write("Select matrices to delete:")
+                matrices_to_delete = []
+                for idx, matrix in enumerate(st.session_state.matrices):
+                    if st.checkbox(f"Delete {matrix['name']}", key=f"bulk_delete_{idx}"):
+                        matrices_to_delete.append(idx)
+            
+            with col2:
+                if st.button("🗑️ Delete Selected", key="bulk_delete_btn", 
+                           disabled=len(matrices_to_delete) == 0):
+                    # Delete in reverse order to maintain indices
+                    for idx in sorted(matrices_to_delete, reverse=True):
+                        st.session_state.matrices.pop(idx)
+                    save_user_matrices(st.session_state.username, st.session_state.matrices)
+                    st.success(f"✅ Deleted {len(matrices_to_delete)} matrix/matrices!")
+                    st.rerun()
+            
+            with col3:
+                delete_all_confirm = st.checkbox("Confirm Delete All", key="delete_all_confirm")
+                if st.button("🗑️ Delete All", key="delete_all_btn", 
+                           disabled=not delete_all_confirm):
+                    deleted_count = len(st.session_state.matrices)
+                    st.session_state.matrices.clear()
+                    save_user_matrices(st.session_state.username, st.session_state.matrices)
+                    st.success(f"✅ Deleted all {deleted_count} matrices!")
+                    st.rerun()
+            
+            st.markdown("---")
+            st.write("### Individual Matrix Management")
+            
             for idx, matrix in enumerate(st.session_state.matrices):
                 with st.expander(f"📋 {matrix['name']} ({matrix['rows']}x{matrix['cols']})"):
                     col1, col2 = st.columns([4, 1])
@@ -206,6 +260,9 @@ def display_main_page():
                         # Rename
                         new_name = st.text_input("Rename", value=matrix['name'], key=f"rename_{idx}")
                         if st.button("✏️ Rename", key=f"rename_btn_{idx}"):
+                            # Ensure first letter is uppercase if it's a letter
+                            if new_name and len(new_name) > 0 and new_name[0].isalpha():
+                                new_name = new_name[0].upper() + new_name[1:]
                             st.session_state.matrices[idx]['name'] = new_name
                             save_user_matrices(st.session_state.username, st.session_state.matrices)
                             st.success("✅ Matrix renamed!")
@@ -220,11 +277,11 @@ def display_main_page():
         else:
             operation = st.selectbox(
                 "Select Operation",
-                ["Determinant", "Transpose", "Inverse", "Add", "Subtract", "Multiply", "Scalar Multiply"]
+                ["Determinant", "Transpose", "Inverse", "Row Reduce", "Add", "Subtract", "Multiply", "Scalar Multiply"]
             )
             
             # Single matrix operations
-            if operation in ["Determinant", "Transpose", "Inverse"]:
+            if operation in ["Determinant", "Transpose", "Inverse", "Row Reduce"]:
                 matrix_names = [m['name'] for m in st.session_state.matrices]
                 selected_matrix_name = st.selectbox("Select Matrix", matrix_names)
                 selected_matrix = next(m for m in st.session_state.matrices if m['name'] == selected_matrix_name)
@@ -244,6 +301,12 @@ def display_main_page():
                             df = pd.DataFrame(result['data'], dtype=float)
                             st.success(f"✅ Transposed Matrix ({result['rows']}x{result['cols']}):")
                             st.dataframe(df.round(4), use_container_width=True)
+                            
+                            # Assign letter name
+                            next_letter = get_next_matrix_letter(st.session_state.matrices)
+                            if next_letter:
+                                result['name'] = f"{next_letter} ({result['rows']}x{result['cols']})"
+                            
                             st.session_state.matrices.append(result)
                             save_user_matrices(st.session_state.username, st.session_state.matrices)
                             st.info(f"Matrix saved as: {result['name']}")
@@ -257,6 +320,31 @@ def display_main_page():
                             df = pd.DataFrame(result['data'], dtype=float)
                             st.success(f"✅ Inverse Matrix ({result['rows']}x{result['cols']}):")
                             st.dataframe(df.round(6), use_container_width=True)
+                            
+                            # Assign letter name
+                            next_letter = get_next_matrix_letter(st.session_state.matrices)
+                            if next_letter:
+                                result['name'] = f"{next_letter} ({result['rows']}x{result['cols']})"
+                            
+                            st.session_state.matrices.append(result)
+                            save_user_matrices(st.session_state.username, st.session_state.matrices)
+                            st.info(f"Matrix saved as: {result['name']}")
+                        else:
+                            st.error(f"❌ {result}")
+                    
+                    elif operation == "Row Reduce":
+                        success, result = row_reduce(selected_matrix)
+                        if success:
+                            import pandas as pd
+                            df = pd.DataFrame(result['data'], dtype=float)
+                            st.success(f"✅ Row Reduced Matrix (RREF) ({result['rows']}x{result['cols']}):")
+                            st.dataframe(df.round(6), use_container_width=True)
+                            
+                            # Assign letter name
+                            next_letter = get_next_matrix_letter(st.session_state.matrices)
+                            if next_letter:
+                                result['name'] = f"{next_letter} ({result['rows']}x{result['cols']})"
+                            
                             st.session_state.matrices.append(result)
                             save_user_matrices(st.session_state.username, st.session_state.matrices)
                             st.info(f"Matrix saved as: {result['name']}")
@@ -289,6 +377,12 @@ def display_main_page():
                         df = pd.DataFrame(result['data'], dtype=float)
                         st.success(f"✅ Result ({result['rows']}x{result['cols']}):")
                         st.dataframe(df.round(6), use_container_width=True)
+                        
+                        # Assign letter name
+                        next_letter = get_next_matrix_letter(st.session_state.matrices)
+                        if next_letter:
+                            result['name'] = f"{next_letter} ({result['rows']}x{result['cols']})"
+                        
                         st.session_state.matrices.append(result)
                         save_user_matrices(st.session_state.username, st.session_state.matrices)
                         st.info(f"Matrix saved as: {result['name']}")
@@ -311,6 +405,12 @@ def display_main_page():
                         df = pd.DataFrame(result['data'], dtype=float)
                         st.success(f"✅ Result ({result['rows']}x{result['cols']}):")
                         st.dataframe(df.round(6), use_container_width=True)
+                        
+                        # Assign letter name
+                        next_letter = get_next_matrix_letter(st.session_state.matrices)
+                        if next_letter:
+                            result['name'] = f"{next_letter} ({result['rows']}x{result['cols']})"
+                        
                         st.session_state.matrices.append(result)
                         save_user_matrices(st.session_state.username, st.session_state.matrices)
                         st.info(f"Matrix saved as: {result['name']}")
@@ -341,10 +441,11 @@ def display_main_page():
         
         **Features:**
         - ✅ Secure user authentication with bcrypt hashing
-        - ✅ Store up to 10 matrices
-        - ✅ Matrix operations: Determinant, Transpose, Inverse
+        - ✅ Store up to 10 matrices with letter labels (A-J) and dimensions
+        - ✅ Matrix operations: Determinant, Transpose, Inverse, Row Reduction
         - ✅ Matrix arithmetic: Add, Subtract, Multiply
         - ✅ Scalar multiplication
+        - ✅ Bulk and individual matrix deletion
         - ✅ Input validation and error messages
         
         **Security:**
